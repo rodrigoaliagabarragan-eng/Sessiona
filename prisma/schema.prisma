@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  THERAPIST
+  PATIENT
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model User {
+  id                  String               @id @default(cuid())
+  email               String               @unique
+  passwordHash        String
+  role                UserRole
+  fullName            String
+  phone               String?
+  isActive            Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  therapistProfile    TherapistProfile?
+  patientProfile      PatientProfile?
+  passwordResetTokens PasswordResetToken[]
+  uploadedAudio       AudioSession[]       @relation("AudioUploadedBy")
+  createdAppointments Appointment[]        @relation("AppointmentCreatedBy")
+  audioAccessLogs     AudioAccessLog[]
+}
+
+model TherapistProfile {
+  id                            String             @id @default(cuid())
+  userId                        String             @unique
+  title                         String?
+  licenseNumber                 String?
+  bio                           String?
+  timezone                      String             @default("Europe/Madrid")
+  defaultSessionDurationMinutes Int                @default(50)
+  createdAt                     DateTime           @default(now())
+  updatedAt                     DateTime           @updatedAt
+  user                          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patients                      TherapistPatient[]
+  appointments                  Appointment[]
+  availabilityRules             AvailabilityRule[]
+  audioSessions                 AudioSession[]
+}
+
+model PatientProfile {
+  id                    String             @id @default(cuid())
+  userId                String             @unique
+  dateOfBirth           DateTime?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  notes                 String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  therapists            TherapistPatient[]
+  appointments          Appointment[]
+  audioSessions         AudioSession[]
+}
+
+model TherapistPatient {
+  id          String           @id @default(cuid())
+  therapistId String
+  patientId   String
+  assignedAt  DateTime         @default(now())
+  therapist   TherapistProfile @relation(fields: [therapistId], references: [id], onDelete: Cascade)
+  patient     PatientProfile   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@unique([therapistId, patientId])
+}
+
+model Appointment {
+  id                   String            @id @default(cuid())
+  therapistId          String
+  patientId            String
+  createdByUserId      String
+  status               AppointmentStatus @default(SCHEDULED)
+  startsAt             DateTime
+  endsAt               DateTime
+  patientMessage       String?
+  cancellationReason   String?
+  rescheduleRequestedAt DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  therapist            TherapistProfile  @relation(fields: [therapistId], references: [id], onDelete: Cascade)
+  patient              PatientProfile    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  createdBy            User              @relation("AppointmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  audioSessions        AudioSession[]
+
+  @@index([therapistId, startsAt])
+  @@index([patientId, startsAt])
+}
+
+model AvailabilityRule {
+  id                  String           @id @default(cuid())
+  therapistId         String
+  dayOfWeek           Int
+  startTime           String
+  endTime             String
+  slotDurationMinutes Int              @default(50)
+  isActive            Boolean          @default(true)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  therapist           TherapistProfile @relation(fields: [therapistId], references: [id], onDelete: Cascade)
+
+  @@unique([therapistId, dayOfWeek, startTime, endTime, slotDurationMinutes])
+  @@index([therapistId, dayOfWeek])
+}
+
+model AudioSession {
+  id               String           @id @default(cuid())
+  therapistId      String
+  patientId        String
+  appointmentId    String?
+  uploadedByUserId String
+  title            String
+  sessionDate      DateTime
+  durationSeconds  Int
+  notesPrivate     String?
+  originalFileName String
+  mimeType         String
+  byteSize         Int
+  storageKey       String           @unique
+  checksum         String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  therapist        TherapistProfile @relation(fields: [therapistId], references: [id], onDelete: Cascade)
+  patient          PatientProfile   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  appointment      Appointment?     @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  uploadedBy       User             @relation("AudioUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  accessLogs       AudioAccessLog[]
+
+  @@index([patientId, sessionDate])
+  @@index([therapistId, sessionDate])
+}
+
+model AudioAccessLog {
+  id             String       @id @default(cuid())
+  audioSessionId String
+  userId         String
+  accessedAt     DateTime     @default(now())
+  ipAddress      String?
+  userAgent      String?
+  audioSession   AudioSession @relation(fields: [audioSessionId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([audioSessionId, accessedAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
